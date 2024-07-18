@@ -6,9 +6,8 @@ from PIL import Image, ImageTk
 import numpy as np
 import csv
 
-
 def on_mouse(event, x, y, flags, param):
-    global start_x, start_y, end_x, end_y, current_region, units_clicked, player_data_clicked
+    global start_x, start_y, end_x, end_y, current_region, units_clicked, player_data_clicked, image_copy
 
     if event == cv2.EVENT_LBUTTONDOWN:
         start_x, start_y = x, y
@@ -23,13 +22,17 @@ def on_mouse(event, x, y, flags, param):
             units_region = (start_x, start_y, end_x, end_y)
             units_clicked = True
             print("Units region selected!")
+            # Update text prompt
+            image_copy = original_image.copy()
+            cv2.putText(image_copy, "Click the player data region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.imshow("Thumbnail", image_copy)
         elif current_region == "player_data":
             player_data_region = (start_x, start_y, end_x, end_y)
             player_data_clicked = True
             print("Player data region selected!")
 
 def select_video():
-    global video_path, thumbnail_label, units_region, player_data_region, units_clicked, player_data_clicked
+    global video_path, thumbnail_label, units_region, player_data_region, units_clicked, player_data_clicked, original_image, image_copy
 
     units_clicked = False
     player_data_clicked = False
@@ -53,31 +56,26 @@ def select_video():
             return
 
         # Convert OpenCV image to PIL format
-        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(image)
-        image = image.resize((1200, 800))  # Resize to 1200x800
+        original_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        original_image = Image.fromarray(original_image)
+        original_image = original_image.resize((1200, 800))  # Resize to 1200x800
 
         # Convert PIL image back to OpenCV format (NumPy array)
-        image = np.array(image)
-        
+        original_image = np.array(original_image)
+        image_copy = original_image.copy()
+
         # Display thumbnail with mouse callback
-        cv2.imshow("Thumbnail", np.array(image))
-        cv2.putText(image, "Click the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)  # Add prompt
-        cv2.waitKey(1)  # Short delay for image update
+        cv2.putText(image_copy, "Click the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.imshow("Thumbnail", image_copy)
         cv2.setMouseCallback("Thumbnail", on_mouse)
 
         while not units_clicked:
             cv2.waitKey(1)
 
-        cv2.putText(image, "Click the player data region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)  # Update prompt
-        cv2.imshow("Thumbnail", np.array(image))
-        cv2.waitKey(1)
-
         while not player_data_clicked:
             cv2.waitKey(1)
 
         cv2.destroyAllWindows()
-
 
 # Create the main window
 root = tk.Tk()
