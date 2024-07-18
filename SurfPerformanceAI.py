@@ -27,6 +27,18 @@ def on_mouse(event, x, y, flags, param):
             player_data_region = (start_x, start_y, end_x, end_y)
             player_data_clicked = True
             print("Player data region selected!")
+            
+def detect_text(image, region):
+    # Extract ROI from the image
+    roi = image[region[1]:region[3], region[0]:region[2]]
+
+    # Preprocess image for text detection (optional)
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+
+    # Use PyTesseract to detect text
+    text = pytesseract.image_to_string(thresh)
+    return text
 
 def select_video():
     global video_path, thumbnail_label, units_region, player_data_region, units_clicked, player_data_clicked
@@ -82,7 +94,7 @@ def select_video():
 # Create the main window
 root = tk.Tk()
 root.title("Video Selector")
-root.geometry("1600x1200")
+root.geometry("1200x800")
 
 # Create a label to display the thumbnail
 thumbnail_label = tk.Label(root)
