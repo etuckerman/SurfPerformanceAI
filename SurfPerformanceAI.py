@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 import numpy as np
 import csv
 
+
 def on_mouse(event, x, y, flags, param):
     global start_x, start_y, end_x, end_y, current_region, units_clicked, player_data_clicked
 
@@ -38,60 +39,45 @@ def select_video():
         # Load the video
         cap = cv2.VideoCapture(video_path)
 
+        # Check if video loaded successfully
+        if not cap.isOpened():
+            print("Error opening video file!")
+            return
+
         # Get the first frame as thumbnail
         ret, frame = cap.read()
         cap.release()
+
+        if not ret:
+            print("Error reading frame from video!")
+            return
 
         # Convert OpenCV image to PIL format
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(image)
         image = image.resize((1200, 800))  # Resize to 1200x800
 
+        # Convert PIL image back to OpenCV format (NumPy array)
+        image = np.array(image)
+        
         # Display thumbnail with mouse callback
         cv2.imshow("Thumbnail", np.array(image))
+        cv2.putText(image, "Click the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)  # Add prompt
+        cv2.waitKey(1)  # Short delay for image update
         cv2.setMouseCallback("Thumbnail", on_mouse)
-        cv2.waitKey(0)
+
+        while not units_clicked:
+            cv2.waitKey(1)
+
+        cv2.putText(image, "Click the player data region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)  # Update prompt
+        cv2.imshow("Thumbnail", np.array(image))
+        cv2.waitKey(1)
+
+        while not player_data_clicked:
+            cv2.waitKey(1)
+
         cv2.destroyAllWindows()
 
-        # Create a Tkinter image and label
-        photo = ImageTk.PhotoImage(image)
-        thumbnail_label.config(image=photo)
-        thumbnail_label.image = photo  # Keep a reference
-
-        # Process video
-        cap = cv2.VideoCapture(video_path)
-
-        with open("data.csv", "w", newline="") as csvfile:
-            fieldnames = ["Units", "Player Data"]
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                # Extract data only if both regions are defined
-                if units_clicked and player_data_clicked:
-                    # Extract units data
-                    units_roi = frame[units_region[1]:units_region[3], units_region[0]:units_region[2]]
-                    gray_units = cv2.cvtColor(units_roi, cv2.COLOR_BGR2GRAY)
-                    _, thresh_units = cv2.threshold(gray_units, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-                    units_text = pytesseract.image_to_string(thresh_units, config='--psm 6')
-                    units_text = units_text.strip()  # Remove extra spaces
-
-                    # Extract player data
-                    player_data_roi = frame[player_data_region[1]:player_data_region[3], player_data_region[0]:player_data_region[2]]
-                    gray_player_data = cv2.cvtColor(player_data_roi, cv2.COLOR_BGR2GRAY)
-                    _, thresh_player_data = cv2.threshold(gray_player_data, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-                    player_data_text = pytesseract.image_to_string(thresh_player_data)
-                    player_data_text = player_data_text.strip()
-
-                    # Write data to CSV
-                    writer.writerow({"Units": units_text, "Player Data": player_data_text})
-
-        cap.release()
-        cv2.destroyAllWindows()
 
 # Create the main window
 root = tk.Tk()
