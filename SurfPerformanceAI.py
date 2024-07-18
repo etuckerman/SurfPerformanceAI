@@ -3,7 +3,6 @@ from tkinter import filedialog
 import cv2
 import PIL.Image, PIL.ImageTk
 
-
 def select_video():
     global video_path, thumbnail_label
 
@@ -19,7 +18,7 @@ def select_video():
         # Convert OpenCV image to PIL format
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = PIL.Image.fromarray(image)
-        image = image.resize((300, 200))  # Adjust size as needed
+        image = image.resize((root.winfo_width(), root.winfo_height()))  # Resize to window size
 
         # Create a Tkinter image and label
         photo = PIL.ImageTk.PhotoImage(image)
@@ -33,7 +32,7 @@ root.geometry("1200x800")
 
 # Create a label to display the thumbnail
 thumbnail_label = tk.Label(root)
-thumbnail_label.pack()
+thumbnail_label.pack(fill=tk.BOTH, expand=True)  # Fill the entire window
 
 # Create a button to select the video file
 select_button = tk.Button(root, text="Select Video", command=select_video)
