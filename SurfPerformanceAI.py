@@ -8,9 +8,21 @@ import numpy as np
 import os
 import re
 import time
+import csv
+
 
 # Set the path to the Tesseract executable
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+def write_to_csv(data, csv_file_path):
+    # Open the CSV file in write mode
+    with open(csv_file_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        # Write the header
+        writer.writerow(['Frame Number', 'Units Data', 'Surf Timer Data'])
+        # Write the data
+        for row in data:
+            writer.writerow(row)
 
 def on_mouse(event, x, y, flags, param):
     global units_region, surftimer_region, units_clicked, surftimer_clicked, image_copy
@@ -121,11 +133,11 @@ def extract_text_from_box(image, region, scale_factor=2):
     text = pytesseract.image_to_string(resized_roi, config = '--psm 6')
     
     # Print the image for debugging
-    cv2.imshow("Original ROI", roi)
-    cv2.imshow("Inverted ROI", inverted_roi)
-    cv2.imshow("Resized ROI", resized_roi)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    #cv2.imshow("Original ROI", roi)
+    #cv2.imshow("Inverted ROI", inverted_roi)
+    #cv2.imshow("Resized ROI", resized_roi)
+    #cv2.waitKey(0)
+    #cv2.destroyAllWindows()
     
     print(f"Extracted text: {text}")  # Debug print
     return text
@@ -167,6 +179,206 @@ def crop_video(video_path, start_time, end_time, output_path):
     cap.release()
     out.release()
     print(f"Video cropped and saved to {output_path}")
+
+
+def extract_data_from_spread_out_frames(video_path, units_region, surftimer_region, csv_file_path, num_frames=100):
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    # Calculate the interval between frames
+    interval = max(total_frames // num_frames, 1)
+    
+    frame_number = 0
+    data = []
+
+    for i in range(num_frames):
+        # Set the video position to the next frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+        
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Extract text from the units region
+        units_text = extract_text_from_box(frame, units_region)
+        
+        # Extract text from the surf timer region
+        surf_timer_text = extract_text_from_box(frame, surftimer_region)
+        
+        # Append the data to the list
+        data.append([frame_number, units_text, surf_timer_text])
+        
+        frame_number += interval
+    
+    cap.release()
+    
+    # Write data to CSV
+    write_to_csv(data, csv_file_path)
+    print(f"Data saved to {csv_file_path}")
+
+def scale_regions(original_frame_size, resized_frame_size, regions):
+    original_width, original_height = original_frame_size
+    resized_width, resized_height = resized_frame_size
+    
+    scale_x = resized_width / original_width
+    scale_y = resized_height / original_height
+    
+    scaled_regions = []
+    for region in regions:
+        x1, y1, x2, y2 = region
+        scaled_region = (
+            int(x1 * scale_x),
+            int(y1 * scale_y),
+            int(x2 * scale_x),
+            int(y2 * scale_y)
+        )
+        scaled_regions.append(scaled_region)
+    
+    return scaled_regions
+
+def process_video_frames(video_path, units_region, surftimer_region, csv_file_path, text_label):
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    # Get original frame size
+    original_frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_number = 0
+    data = []
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Get resized frame size
+        resized_frame_size = (1200, 800)
+        frame_resized = cv2.resize(frame, resized_frame_size)
+        
+        # Scale the regions to match the resized frame
+        scaled_units_region, scaled_surftimer_region = scale_regions(original_frame_size, resized_frame_size, [units_region, surftimer_region])
+        
+        # Extract text from the resized regions
+        units_text = extract_text_from_box(frame_resized, scaled_units_region)
+        surf_timer_text = extract_text_from_box(frame_resized, scaled_surftimer_region)
+        
+        # Append the data to the list
+        data.append([frame_number, units_text, surf_timer_text])
+        
+        # Draw rectangles on the resized frame
+        frame_with_regions = frame_resized.copy()
+        cv2.rectangle(frame_with_regions, (scaled_units_region[0], scaled_units_region[1]), (scaled_units_region[2], scaled_units_region[3]), (0, 255, 0), 2)
+        cv2.rectangle(frame_with_regions, (scaled_surftimer_region[0], scaled_surftimer_region[1]), (scaled_surftimer_region[2], scaled_surftimer_region[3]), (0, 0, 255), 2)
+        
+        # Display the frame
+        cv2.imshow("Video Frame", frame_with_regions)
+        
+        # Update the Tkinter label with extracted text
+        text_label.config(text=f"Frame {frame_number}: Units Text: {units_text}\nSurf Timer Text: {surf_timer_text}")
+        root.update_idletasks()  # Update Tkinter window
+        
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        
+        frame_number += 1
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    # Write data to CSV
+    write_to_csv(data, csv_file_path)
+    print(f"Data saved to {csv_file_path}")
+
+
+
+
+
+
+def play_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    
+    # Check if video loaded successfully
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Display the frame
+        cv2.imshow("Video", frame)
+        
+        # Check if 'q' key is pressed to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
+def process_video_frames_with_thumbnail_regions(video_path, units_region, surftimer_region, csv_file_path, text_label):
+    cap = cv2.VideoCapture(video_path)
+    
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_number = 0
+    data = []
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Resize the frame to match the thumbnail size
+        resized_frame = cv2.resize(frame, (1200, 800))
+        
+        # Use the same regions as in the thumbnail
+        # Extract text from the regions directly
+        units_text = extract_text_from_box(resized_frame, units_region)
+        surf_timer_text = extract_text_from_box(resized_frame, surftimer_region)
+        
+        # Append the data to the list
+        data.append([frame_number, units_text, surf_timer_text])
+        
+        # Draw rectangles on the resized frame
+        frame_with_regions = resized_frame.copy()
+        cv2.rectangle(frame_with_regions, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
+        cv2.rectangle(frame_with_regions, (surftimer_region[0], surftimer_region[1]), (surftimer_region[2], surftimer_region[3]), (0, 0, 255), 2)
+        
+        # Display the frame
+        cv2.imshow("Video Frame", frame_with_regions)
+        
+        # Update the Tkinter label with extracted text
+        text_label.config(text=f"Frame {frame_number}: Units Text: {units_text}\nSurf Timer Text: {surf_timer_text}")
+        root.update_idletasks()  # Update Tkinter window
+        
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        
+        frame_number += 1
+    
+    cap.release()
+    cv2.destroyAllWindows()
+    
+    # Write data to CSV
+    write_to_csv(data, csv_file_path)
+    print(f"Data saved to {csv_file_path}")
 
 def select_video():
     global video_path, thumbnail_label, units_region, surftimer_region, units_clicked, surftimer_clicked, original_image, image_copy
@@ -271,56 +483,15 @@ def select_video():
             print("User canceled the region selection.")
             return
 
-        # Extract timer start and end times
-        start_time = None
-        end_time = None
-
-        # Extract the text from the surf timer region
-        units_text = extract_text_from_box(original_image, units_region)
-        surf_timer_text = extract_text_from_box(original_image, surftimer_region)
-        # match = re.search(r"Time: (\d{2}):(\d{2}):(\d{2})", surf_timer_text)
-        # if match:
-        #     start_hours, start_minutes, start_seconds = map(int, match.groups())
-        #     start_time = start_hours * 3600 + start_minutes * 60 + start_seconds
-
-        #     # Calculate the end time (assuming video length is known)
-        #     end_time = start_time + (total_frames / fps)
-        # else:
-        #     print("Error: Could not extract timer times.")
-        #     return
-        print(f"surf_timer_text: {surf_timer_text}")
-        print(f"units_text: {units_text}")
-        # Crop the video
-        output_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 files", "*.mp4")])
-        if output_path:
-            crop_video(video_path, start_time, end_time, output_path)
+        # Prompt user to select CSV file path
+        csv_file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if csv_file_path:
+            # Process the video frames and save data to CSV
+            process_video_frames_with_thumbnail_regions(video_path, units_region, surftimer_region, csv_file_path, text_label)
         
         # Play the video in the main Tkinter window
         play_video(video_path)
 
-def play_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-    
-    # Check if video loaded successfully
-    if not cap.isOpened():
-        print("Error opening video file!")
-        return
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        # Display the frame
-        cv2.imshow("Video", frame)
-        
-        # Check if 'q' key is pressed to exit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    cap.release()
-    cv2.destroyAllWindows()
-
 # Create the main window
 root = tk.Tk()
 root.title("Video Selector")
@@ -338,33 +509,9 @@ select_button.pack()
 thumbnail_label = tk.Label(root)
 thumbnail_label.pack(fill=tk.BOTH, expand=True)
 
-# Center the frame in the window
-frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
-
-# Move the button to the bottom of the window
-frame.pack(side=tk.BOTTOM)
-
-# Start the Tkinter event loop
-root.mainloop()
-
-
-
-# Create the main window
-root = tk.Tk()
-root.title("Video Selector")
-root.geometry("1200x800")
-
-# Create a frame to hold the button and thumbnail
-frame = tk.Frame(root)
-frame.pack(pady=10)
-
-# Create a button to select the video file
-select_button = tk.Button(frame, text="Select Video", command=select_video, bg="blue", fg="white", font=("Arial", 14), padx=10, pady=5)
-select_button.pack()
-
-# Create a label to display the thumbnail
-thumbnail_label = tk.Label(root)
-thumbnail_label.pack(fill=tk.BOTH, expand=True)
+# Create a label to display extracted text
+text_label = tk.Label(root, text="", font=("Arial", 12))
+text_label.pack(pady=10)
 
 # Center the frame in the window
 frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
@@ -374,3 +521,4 @@ frame.pack(side=tk.BOTTOM)
 
 # Start the Tkinter event loop
 root.mainloop()
+
