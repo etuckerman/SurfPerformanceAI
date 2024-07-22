@@ -68,7 +68,7 @@ def on_mouse(event, x, y, flags, param):
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
             cv2.rectangle(image_copy, (surftimer_region[0], surftimer_region[1]), (surftimer_region[2], surftimer_region[3]), (0, 0, 255), 2)
             cv2.imshow("Thumbnail", image_copy)
-            cv2.waitKey(500)  # Short delay to show the final image
+            #cv2.waitKey(500)  # Short delay to show the final image
 
 def refine_bounding_box(image, region):
     x1, y1, x2, y2 = region
@@ -139,7 +139,7 @@ def extract_text_from_box(image, region, scale_factor=2):
     #cv2.waitKey(0)
     #cv2.destroyAllWindows()
     
-    print(f"Extracted text: {text}")  # Debug print
+    #print(f"Extracted text: {text}")  # Debug print
     return text
 
 
@@ -181,7 +181,7 @@ def crop_video(video_path, start_time, end_time, output_path):
     print(f"Video cropped and saved to {output_path}")
 
 
-def extract_data_from_spread_out_frames(video_path, units_region, surftimer_region, csv_file_path, num_frames=100):
+def extract_data_from_spread_out_frames(video_path, units_region, surftimer_region, csv_file_path):
     cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
@@ -191,15 +191,15 @@ def extract_data_from_spread_out_frames(video_path, units_region, surftimer_regi
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # Calculate the interval between frames
-    interval = max(total_frames // num_frames, 1)
+    # Extract data from 1 in every 60 frames
+    interval = 60
     
     frame_number = 0
     data = []
 
-    for i in range(num_frames):
+    while cap.isOpened():
         # Set the video position to the next frame
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i * interval)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number * interval)
         
         ret, frame = cap.read()
         if not ret:
@@ -211,16 +211,19 @@ def extract_data_from_spread_out_frames(video_path, units_region, surftimer_regi
         # Extract text from the surf timer region
         surf_timer_text = extract_text_from_box(frame, surftimer_region)
         
-        # Append the data to the list
-        data.append([frame_number, units_text, surf_timer_text])
-        
-        frame_number += interval
+        # Check if units_text contains only integers and if surf_timer_text matches the time format
+        if re.fullmatch(r'\d+', units_text) and re.fullmatch(r'TIME: \d{2}:\d{2}:\d{2}', surf_timer_text):
+            # Append the data to the list
+            data.append([frame_number, units_text, surf_timer_text])
+            print(f"Frame {frame_number}: Units Text: {units_text}, Surf Timer Text: {surf_timer_text}")
+        frame_number += 1
     
     cap.release()
     
     # Write data to CSV
     write_to_csv(data, csv_file_path)
     print(f"Data saved to {csv_file_path}")
+
 
 def scale_regions(original_frame_size, resized_frame_size, regions):
     original_width, original_height = original_frame_size
@@ -281,7 +284,7 @@ def process_video_frames(video_path, units_region, surftimer_region, csv_file_pa
         cv2.rectangle(frame_with_regions, (scaled_surftimer_region[0], scaled_surftimer_region[1]), (scaled_surftimer_region[2], scaled_surftimer_region[3]), (0, 0, 255), 2)
         
         # Display the frame
-        cv2.imshow("Video Frame", frame_with_regions)
+        #cv2.imshow("Video Frame", frame_with_regions)
         
         # Update the Tkinter label with extracted text
         text_label.config(text=f"Frame {frame_number}: Units Text: {units_text}\nSurf Timer Text: {surf_timer_text}")
@@ -300,33 +303,183 @@ def process_video_frames(video_path, units_region, surftimer_region, csv_file_pa
     write_to_csv(data, csv_file_path)
     print(f"Data saved to {csv_file_path}")
 
-
-
-
-
-
-def play_video(video_path):
+def play_video_in_intervals(video_path):
     cap = cv2.VideoCapture(video_path)
     
-    # Check if video loaded successfully
     if not cap.isOpened():
         print("Error opening video file!")
         return
     
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    interval = 60  # Show every 60th frame
+    frame_number = 0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
     while cap.isOpened():
+        # Set the video position to the next frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number * interval)
+        
         ret, frame = cap.read()
         if not ret:
             break
         
         # Display the frame
-        cv2.imshow("Video", frame)
+        cv2.imshow('Video Playback', frame)
         
-        # Check if 'q' key is pressed to exit
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Wait for a short period to give the appearance of normal playback speed
+        # Calculate delay to maintain video playback speed
+        delay = int(1000 / fps) * interval
+        if cv2.waitKey(delay) & 0xFF == ord('q'):
+            break
+        
+        frame_number += 1
+        
+        if frame_number * interval >= total_frames:
             break
     
     cap.release()
     cv2.destroyAllWindows()
+
+
+# Update the select_video function to include the text label
+def select_video():
+    global video_path, thumbnail_label, units_region, surftimer_region, units_clicked, surftimer_clicked, original_image, image_copy
+    global units_template_width, units_template_height, surftimer_template_width, surftimer_template_height
+
+    units_clicked = False
+    surftimer_clicked = False
+
+    video_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4;*.avi;*.mov")])
+    if video_path:
+        # Load the video
+        cap = cv2.VideoCapture(video_path)
+
+        # Check if video loaded successfully
+        if not cap.isOpened():
+            print("Error opening video file!")
+            return
+
+        # Get the total number of frames and calculate the middle frame
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        middle_frame_number = total_frames // 2
+
+        # Set the video position to the middle frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, middle_frame_number)
+
+        # Read the middle frame
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret:
+            print("Error reading frame from video!")
+            return
+
+        # Convert OpenCV image to PIL format
+        original_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        original_image = Image.fromarray(original_image)
+        original_image = original_image.resize((1200, 800))  # Resize to 1200x800
+
+        # Convert PIL image back to OpenCV format (NumPy array)
+        original_image = np.array(original_image)
+        image_copy = original_image.copy()
+
+        # Get the directory of the script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Load template images using absolute paths
+        units_template_path = os.path.join(script_dir, "data/units_template.png")
+        surftimer_template_path = os.path.join(script_dir, "data/surftimer_template.png")
+        
+        units_template = cv2.imread(units_template_path, cv2.IMREAD_COLOR)
+        surftimer_template = cv2.imread(surftimer_template_path, cv2.IMREAD_COLOR)
+        
+        # Verify template images are loaded
+        if units_template is None:
+            print(f"Error: Could not load template image from {units_template_path}")
+            return
+        if surftimer_template is None:
+            print(f"Error: Could not load template image from {surftimer_template_path}")
+            return
+
+        # Get template dimensions
+        units_template_height, units_template_width = units_template.shape[:2]
+        surftimer_template_height, surftimer_template_width = surftimer_template.shape[:2]
+
+        # Display thumbnail with mouse callback
+        cv2.putText(image_copy, "Click to place the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.imshow("Thumbnail", image_copy)
+        cv2.setMouseCallback("Thumbnail", on_mouse)
+
+        while not units_clicked:
+            cv2.waitKey(1)
+
+        while not surftimer_clicked:
+            cv2.waitKey(1)
+
+        cv2.destroyAllWindows()
+
+        # Refine selected regions using Tesseract OCR
+        units_region = refine_bounding_box(original_image, units_region)
+        surftimer_region = refine_bounding_box(original_image, surftimer_region)
+
+        # Add some room around the refined regions
+        units_region = (units_region[0] - 10, units_region[1] - 10, units_region[2] + 10, units_region[3] + 10)
+        surftimer_region = (surftimer_region[0] - 10, surftimer_region[1] - 10, surftimer_region[2] + 10, surftimer_region[3] + 10)
+
+        # Highlight selected regions
+        image_with_regions = original_image.copy()
+        cv2.rectangle(image_with_regions, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
+        cv2.rectangle(image_with_regions, (surftimer_region[0], surftimer_region[1]), (surftimer_region[2], surftimer_region[3]), (0, 0, 255), 2)
+
+        # Convert to PIL format for Tkinter
+        image_with_regions = Image.fromarray(image_with_regions)
+        image_tk = ImageTk.PhotoImage(image_with_regions)
+
+        # Update the thumbnail label in the main window
+        thumbnail_label.config(image=image_tk)
+        thumbnail_label.image = image_tk
+
+        # Ask user to confirm selected regions
+        confirm = messagebox.askyesno("Confirm Regions", "Are the selected regions correct?")
+        if not confirm:
+            print("User canceled the region selection.")
+            return
+
+        # Prompt user to select CSV file path
+        csv_file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if csv_file_path:
+            # Create a Tkinter label to show the extracted text
+            text_label = tk.Label(root, text="", font=("Arial", 12), bg="white")
+            text_label.pack(side=tk.BOTTOM, fill=tk.X)
+            
+            # Process the video frames and save data to CSV with live preview
+            process_video_frames(video_path, units_region, surftimer_region, csv_file_path, text_label)
+
+
+
+
+# def play_video(video_path):
+#     cap = cv2.VideoCapture(video_path)
+    
+#     # Check if video loaded successfully
+#     if not cap.isOpened():
+#         print("Error opening video file!")
+#         return
+    
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+        
+#         # Display the frame
+#         cv2.imshow("Video", frame)
+        
+#         # Check if 'q' key is pressed to exit
+#         if cv2.waitKey(1) & 0xFF == ord('q'):
+#             break
+    
+#     cap.release()
+#     cv2.destroyAllWindows()
 
 def process_video_frames_with_thumbnail_regions(video_path, units_region, surftimer_region, csv_file_path, text_label):
     cap = cv2.VideoCapture(video_path)
@@ -335,7 +488,7 @@ def process_video_frames_with_thumbnail_regions(video_path, units_region, surfti
         print("Error opening video file!")
         return
     
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = 60
     frame_number = 0
     data = []
 
@@ -367,8 +520,9 @@ def process_video_frames_with_thumbnail_regions(video_path, units_region, surfti
         text_label.config(text=f"Frame {frame_number}: Units Text: {units_text}\nSurf Timer Text: {surf_timer_text}")
         root.update_idletasks()  # Update Tkinter window
         
-        # Break the loop if 'q' is pressed
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Delay to achieve 60fps
+        delay = int(1000 / fps)
+        if cv2.waitKey(delay) & 0xFF == ord('q'):
             break
         
         frame_number += 1
@@ -490,7 +644,7 @@ def select_video():
             process_video_frames_with_thumbnail_regions(video_path, units_region, surftimer_region, csv_file_path, text_label)
         
         # Play the video in the main Tkinter window
-        play_video(video_path)
+        play_video_in_intervals(video_path)
 
 # Create the main window
 root = tk.Tk()
