@@ -125,8 +125,8 @@ def select_video():
         script_dir = os.path.dirname(os.path.abspath(__file__))
 
         # Load template images using absolute paths
-        units_template_path = os.path.join(script_dir, "data/units_template.png")
-        player_data_template_path = os.path.join(script_dir, "data/player_data_template.png")
+        units_template_path = os.path.join(script_dir, "units_template.png")
+        player_data_template_path = os.path.join(script_dir, "player_data_template.png")
         
         units_template = cv2.imread(units_template_path, cv2.IMREAD_COLOR)
         player_data_template = cv2.imread(player_data_template_path, cv2.IMREAD_COLOR)
