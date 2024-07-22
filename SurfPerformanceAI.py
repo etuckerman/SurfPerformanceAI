@@ -177,13 +177,23 @@ def select_video():
 root = tk.Tk()
 root.title("Video Selector")
 root.geometry("1600x1200")
-
 # Create a label to display the thumbnail
 thumbnail_label = tk.Label(root)
 thumbnail_label.pack(fill=tk.BOTH, expand=True)
 
+# Create a frame to hold the button and thumbnail
+frame = tk.Frame(root)
+frame.pack(pady=10)
+
 # Create a button to select the video file
-select_button = tk.Button(root, text="Select Video", command=select_video)
-select_button.pack()
+select_button = tk.Button(frame, text="Select Video", command=select_video, bg="blue", fg="white", font=("Arial", 14), padx=10, pady=5)
+select_button.pack(side=tk.LEFT)
+
+# Display the thumbnail in the frame
+thumbnail_label.pack(side=tk.RIGHT)
+
+# Center the frame in the window
+root.update()
+frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
 root.mainloop()
