@@ -9,13 +9,23 @@ import os
 # Set the path to the Tesseract executable
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
+# Global variables
+units_region = None
+surftimer_region = None
+units_clicked = False
+surftimer_clicked = False
+image_copy = None
+original_image = None
+units_template_width = 0
+units_template_height = 0
+surftimer_template_width = 0
+surftimer_template_height = 0
 
 def on_mouse(event, x, y, flags, param):
-    global current_region, units_region, player_data_region, units_clicked, player_data_clicked, image_copy
+    global units_region, surftimer_region, units_clicked, surftimer_clicked, image_copy
 
     if event == cv2.EVENT_LBUTTONDOWN:
         if not units_clicked:
-            # Calculate the top-left and bottom-right coordinates of the box
             units_width_half = units_template_width // 2
             units_height_half = units_template_height // 2
             units_x1 = x - units_width_half
@@ -23,41 +33,46 @@ def on_mouse(event, x, y, flags, param):
             units_x2 = x + units_width_half
             units_y2 = y + units_height_half
 
-            # Place a box of size `units_template.png` at the clicked position
             units_region = (units_x1, units_y1, units_x2, units_y2)
             units_clicked = True
             print("Units region selected!")
-            # Update text prompt
             image_copy = original_image.copy()
-            cv2.putText(image_copy, "Click to place the player data region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.putText(image_copy, "Click to place the surf timer region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
             cv2.imshow("Thumbnail", image_copy)
-        elif not player_data_clicked:
-            # Calculate the top-left and bottom-right coordinates of the box
-            player_data_width_half = player_data_template_width // 2
-            player_data_height_half = player_data_template_height // 2
-            player_data_x1 = x - player_data_width_half
-            player_data_y1 = y - player_data_height_half
-            player_data_x2 = x + player_data_width_half
-            player_data_y2 = y + player_data_height_half
+        elif not surftimer_clicked:
+            surftimer_width_half = surftimer_template_width // 2
+            surftimer_height_half = surftimer_template_height // 2
+            surftimer_x1 = x - surftimer_width_half
+            surftimer_y1 = y - surftimer_height_half
+            surftimer_x2 = x + surftimer_width_half
+            surftimer_y2 = y + surftimer_height_half
 
-            # Place a box of size `player_data_template.png` at the clicked position
-            player_data_region = (player_data_x1, player_data_y1, player_data_x2, player_data_y2)
-            player_data_clicked = True
-            print("Player data region selected!")
-            # Update text prompt
+            surftimer_region = (surftimer_x1, surftimer_y1, surftimer_x2, surftimer_y2)
+            surftimer_clicked = True
+            print("Surf timer region selected!")
             image_copy = original_image.copy()
             cv2.putText(image_copy, "Regions placed. Processing...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
-            cv2.rectangle(image_copy, (player_data_region[0], player_data_region[1]), (player_data_region[2], player_data_region[3]), (0, 0, 255), 2)
+            cv2.rectangle(image_copy, (surftimer_region[0], surftimer_region[1]), (surftimer_region[2], surftimer_region[3]), (0, 0, 255), 2)
             cv2.imshow("Thumbnail", image_copy)
             cv2.waitKey(500)  # Short delay to show the final image
 
 def refine_bounding_box(image, region):
     x1, y1, x2, y2 = region
     
+    # Ensure coordinates are within image bounds
+    x1 = max(x1, 0)
+    y1 = max(y1, 0)
+    x2 = min(x2, image.shape[1])
+    y2 = min(y2, image.shape[0])
+
     # Extract the region of interest (ROI) from the image
     roi = image[y1:y2, x1:x2]
+
+    if roi.size == 0:
+        print("Error: ROI is empty")
+        return region  # Return the original region if ROI is empty
 
     # Convert the ROI to grayscale
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -88,11 +103,11 @@ def refine_bounding_box(image, region):
     return refined_region
 
 def select_video():
-    global video_path, thumbnail_label, units_region, player_data_region, units_clicked, player_data_clicked, original_image, image_copy
-    global units_template_width, units_template_height, player_data_template_width, player_data_template_height
+    global video_path, thumbnail_label, units_region, surftimer_region, units_clicked, surftimer_clicked, original_image, image_copy
+    global units_template_width, units_template_height, surftimer_template_width, surftimer_template_height
 
     units_clicked = False
-    player_data_clicked = False
+    surftimer_clicked = False
 
     video_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4;*.avi;*.mov")])
     if video_path:
@@ -104,7 +119,14 @@ def select_video():
             print("Error opening video file!")
             return
 
-        # Get the first frame as thumbnail
+        # Get the total number of frames and calculate the middle frame
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        middle_frame_number = total_frames // 2
+
+        # Set the video position to the middle frame
+        cap.set(cv2.CAP_PROP_POS_FRAMES, middle_frame_number)
+
+        # Read the middle frame
         ret, frame = cap.read()
         cap.release()
 
@@ -126,22 +148,22 @@ def select_video():
 
         # Load template images using absolute paths
         units_template_path = os.path.join(script_dir, "data/units_template.png")
-        player_data_template_path = os.path.join(script_dir, "data/player_data_template.png")
+        surftimer_template_path = os.path.join(script_dir, "data/surftimer_template.png")
         
         units_template = cv2.imread(units_template_path, cv2.IMREAD_COLOR)
-        player_data_template = cv2.imread(player_data_template_path, cv2.IMREAD_COLOR)
+        surftimer_template = cv2.imread(surftimer_template_path, cv2.IMREAD_COLOR)
         
         # Verify template images are loaded
         if units_template is None:
             print(f"Error: Could not load template image from {units_template_path}")
             return
-        if player_data_template is None:
-            print(f"Error: Could not load template image from {player_data_template_path}")
+        if surftimer_template is None:
+            print(f"Error: Could not load template image from {surftimer_template_path}")
             return
 
         # Get template dimensions
         units_template_height, units_template_width = units_template.shape[:2]
-        player_data_template_height, player_data_template_width = player_data_template.shape[:2]
+        surftimer_template_height, surftimer_template_width = surftimer_template.shape[:2]
 
         # Display thumbnail with mouse callback
         cv2.putText(image_copy, "Click to place the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -151,19 +173,19 @@ def select_video():
         while not units_clicked:
             cv2.waitKey(1)
 
-        while not player_data_clicked:
+        while not surftimer_clicked:
             cv2.waitKey(1)
 
         cv2.destroyAllWindows()
 
         # Refine selected regions using Tesseract OCR
         units_region = refine_bounding_box(original_image, units_region)
-        player_data_region = refine_bounding_box(original_image, player_data_region)
+        surftimer_region = refine_bounding_box(original_image, surftimer_region)
 
         # Highlight selected regions
         image_with_regions = original_image.copy()
         cv2.rectangle(image_with_regions, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
-        cv2.rectangle(image_with_regions, (player_data_region[0], player_data_region[1]), (player_data_region[2], player_data_region[3]), (0, 0, 255), 2)
+        cv2.rectangle(image_with_regions, (surftimer_region[0], surftimer_region[1]), (surftimer_region[2], surftimer_region[3]), (0, 0, 255), 2)
 
         # Convert to PIL format for Tkinter
         image_with_regions = Image.fromarray(image_with_regions)
