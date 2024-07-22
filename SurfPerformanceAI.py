@@ -6,6 +6,10 @@ from PIL import Image, ImageTk
 import numpy as np
 import os
 
+# Set the path to the Tesseract executable
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+
 def on_mouse(event, x, y, flags, param):
     global current_region, units_region, player_data_region, units_clicked, player_data_clicked, image_copy
 
@@ -33,24 +37,37 @@ def on_mouse(event, x, y, flags, param):
             cv2.imshow("Thumbnail", image_copy)
             cv2.waitKey(500)  # Short delay to show the final image
 
-def refine_bounding_box(image, region, template):
+def refine_bounding_box(image, region):
     x1, y1, x2, y2 = region
-    template_height, template_width = template.shape[:2]
     
-    # Extract search area
-    search_area = image[y1:y2, x1:x2]
+    # Extract the region of interest (ROI) from the image
+    roi = image[y1:y2, x1:x2]
+
+    # Convert the ROI to grayscale
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     
-    # Ensure search area is larger than the template
-    if search_area.shape[0] < template_height or search_area.shape[1] < template_width:
-        print("Search area is smaller than template, skipping refinement.")
-        return region
+    # Use Tesseract to detect text boxes within the ROI
+    boxes = pytesseract.image_to_boxes(gray)
     
-    result = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
-    _, _, _, max_loc = cv2.minMaxLoc(result)
-    refined_x1 = x1 + max_loc[0]
-    refined_y1 = y1 + max_loc[1]
-    refined_x2 = refined_x1 + template_width
-    refined_y2 = refined_y1 + template_height
+    # Initialize variables to store the refined bounding box coordinates
+    refined_x1, refined_y1, refined_x2, refined_y2 = x2, y2, x1, y1
+    
+    for b in boxes.splitlines():
+        b = b.split()
+        b_x1, b_y1, b_x2, b_y2 = int(b[1]), int(b[2]), int(b[3]), int(b[4])
+        
+        # Tesseract coordinates need to be adjusted to the image coordinates
+        b_x1 += x1
+        b_y1 = y2 - b_y1
+        b_x2 += x1
+        b_y2 = y2 - b_y2
+        
+        # Update the refined bounding box coordinates
+        refined_x1 = min(refined_x1, b_x1)
+        refined_y1 = min(refined_y1, b_y2)
+        refined_x2 = max(refined_x2, b_x2)
+        refined_y2 = max(refined_y2, b_y1)
+    
     refined_region = (refined_x1, refined_y1, refined_x2, refined_y2)
     return refined_region
 
@@ -123,9 +140,9 @@ def select_video():
 
         cv2.destroyAllWindows()
 
-        # Refine selected regions using template matching
-        units_region = refine_bounding_box(original_image, units_region, units_template)
-        player_data_region = refine_bounding_box(original_image, player_data_region, player_data_template)
+        # Refine selected regions using Tesseract OCR
+        units_region = refine_bounding_box(original_image, units_region)
+        player_data_region = refine_bounding_box(original_image, player_data_region)
 
         # Highlight selected regions
         image_with_regions = original_image.copy()
