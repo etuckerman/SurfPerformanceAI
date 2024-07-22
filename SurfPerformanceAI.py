@@ -1,11 +1,13 @@
 import cv2
 import pytesseract
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import tkinter as tk
+import tkvideo
 from PIL import Image, ImageTk
 import numpy as np
 import os
 import re
+import time
 
 # Set the path to the Tesseract executable
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -24,7 +26,9 @@ def on_mouse(event, x, y, flags, param):
             units_y2 = y + units_height_half
 
             # Place a box of size `units_template.png` at the clicked position
-            units_region = (units_x1, units_y1, units_x2, units_y2)
+            # Add a small gap to the region
+            gap = 5
+            units_region = (units_x1 - gap, units_y1 - gap, units_x2 + gap, units_y2 + gap)
             units_clicked = True
             print("Units region selected!")
             # Update text prompt
@@ -42,7 +46,8 @@ def on_mouse(event, x, y, flags, param):
             surftimer_y2 = y + surftimer_height_half
 
             # Place a box of size `surftimer_template.png` at the clicked position
-            surftimer_region = (surftimer_x1, surftimer_y1, surftimer_x2, surftimer_y2)
+            gap = 5
+            surftimer_region = (surftimer_x1 - gap, surftimer_y1 - gap, surftimer_x2 + gap, surftimer_y2 + gap)
             surftimer_clicked = True
             print("Surf timer region selected!")
             # Update text prompt
@@ -87,7 +92,7 @@ def refine_bounding_box(image, region):
     refined_region = (refined_x1, refined_y1, refined_x2, refined_y2)
     return refined_region
 
-def extract_text_from_box(image, region):
+def extract_text_from_box(image, region, scale_factor=2):
     x1, y1, x2, y2 = region
     
     # Ensure coordinates are within image bounds
@@ -103,12 +108,30 @@ def extract_text_from_box(image, region):
         print("Error: ROI is empty")
         return ""
     
-    # Convert the ROI to grayscale
-    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # Invert the colors of the ROI
+    inverted_roi = cv2.bitwise_not(roi)
     
-    # Use Tesseract to extract text within the ROI
-    text = pytesseract.image_to_string(gray)
+    # Resize the inverted ROI to improve text detection
+    height, width = inverted_roi.shape[:2]
+    new_width = int(width * scale_factor)
+    new_height = int(height * scale_factor)
+    resized_roi = cv2.resize(inverted_roi, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+    
+    # Use Tesseract to extract text from the resized ROI
+    text = pytesseract.image_to_string(resized_roi, config = '--psm 6')
+    
+    # Print the image for debugging
+    cv2.imshow("Original ROI", roi)
+    cv2.imshow("Inverted ROI", inverted_roi)
+    cv2.imshow("Resized ROI", resized_roi)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    
+    print(f"Extracted text: {text}")  # Debug print
     return text
+
+
+
 
 def crop_video(video_path, start_time, end_time, output_path):
     cap = cv2.VideoCapture(video_path)
@@ -225,6 +248,10 @@ def select_video():
         units_region = refine_bounding_box(original_image, units_region)
         surftimer_region = refine_bounding_box(original_image, surftimer_region)
 
+        # Add some room around the refined regions
+        units_region = (units_region[0] - 10, units_region[1] - 10, units_region[2] + 10, units_region[3] + 10)
+        surftimer_region = (surftimer_region[0] - 10, surftimer_region[1] - 10, surftimer_region[2] + 10, surftimer_region[3] + 10)
+
         # Highlight selected regions
         image_with_regions = original_image.copy()
         cv2.rectangle(image_with_regions, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
@@ -238,32 +265,94 @@ def select_video():
         thumbnail_label.config(image=image_tk)
         thumbnail_label.image = image_tk
 
+        # Ask user to confirm selected regions
+        confirm = messagebox.askyesno("Confirm Regions", "Are the selected regions correct?")
+        if not confirm:
+            print("User canceled the region selection.")
+            return
+
         # Extract timer start and end times
         start_time = None
         end_time = None
 
         # Extract the text from the surf timer region
+        units_text = extract_text_from_box(original_image, units_region)
         surf_timer_text = extract_text_from_box(original_image, surftimer_region)
-        match = re.search(r"Time: (\d{2}):(\d{2}):(\d{2})", surf_timer_text)
-        if match:
-            start_hours, start_minutes, start_seconds = map(int, match.groups())
-            start_time = start_hours * 3600 + start_minutes * 60 + start_seconds
+        # match = re.search(r"Time: (\d{2}):(\d{2}):(\d{2})", surf_timer_text)
+        # if match:
+        #     start_hours, start_minutes, start_seconds = map(int, match.groups())
+        #     start_time = start_hours * 3600 + start_minutes * 60 + start_seconds
 
-            # Calculate the end time (assuming video length is known)
-            end_time = start_time + (total_frames / fps)
-        else:
-            print("Error: Could not extract timer times.")
-            return
-
+        #     # Calculate the end time (assuming video length is known)
+        #     end_time = start_time + (total_frames / fps)
+        # else:
+        #     print("Error: Could not extract timer times.")
+        #     return
+        print(f"surf_timer_text: {surf_timer_text}")
+        print(f"units_text: {units_text}")
         # Crop the video
         output_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 files", "*.mp4")])
         if output_path:
             crop_video(video_path, start_time, end_time, output_path)
+        
+        # Play the video in the main Tkinter window
+        play_video(video_path)
+
+def play_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    
+    # Check if video loaded successfully
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Display the frame
+        cv2.imshow("Video", frame)
+        
+        # Check if 'q' key is pressed to exit
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
 
 # Create the main window
 root = tk.Tk()
 root.title("Video Selector")
-root.geometry("1600x1200")
+root.geometry("1200x800")
+
+# Create a frame to hold the button and thumbnail
+frame = tk.Frame(root)
+frame.pack(pady=10)
+
+# Create a button to select the video file
+select_button = tk.Button(frame, text="Select Video", command=select_video, bg="blue", fg="white", font=("Arial", 14), padx=10, pady=5)
+select_button.pack()
+
+# Create a label to display the thumbnail
+thumbnail_label = tk.Label(root)
+thumbnail_label.pack(fill=tk.BOTH, expand=True)
+
+# Center the frame in the window
+frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+# Move the button to the bottom of the window
+frame.pack(side=tk.BOTTOM)
+
+# Start the Tkinter event loop
+root.mainloop()
+
+
+
+# Create the main window
+root = tk.Tk()
+root.title("Video Selector")
+root.geometry("1200x800")
 
 # Create a frame to hold the button and thumbnail
 frame = tk.Frame(root)
