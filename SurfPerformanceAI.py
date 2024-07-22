@@ -5,27 +5,17 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import numpy as np
 import os
+import re
 
 # Set the path to the Tesseract executable
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-
-# Global variables
-units_region = None
-surftimer_region = None
-units_clicked = False
-surftimer_clicked = False
-image_copy = None
-original_image = None
-units_template_width = 0
-units_template_height = 0
-surftimer_template_width = 0
-surftimer_template_height = 0
 
 def on_mouse(event, x, y, flags, param):
     global units_region, surftimer_region, units_clicked, surftimer_clicked, image_copy
 
     if event == cv2.EVENT_LBUTTONDOWN:
         if not units_clicked:
+            # Calculate the top-left and bottom-right coordinates of the box
             units_width_half = units_template_width // 2
             units_height_half = units_template_height // 2
             units_x1 = x - units_width_half
@@ -33,14 +23,17 @@ def on_mouse(event, x, y, flags, param):
             units_x2 = x + units_width_half
             units_y2 = y + units_height_half
 
+            # Place a box of size `units_template.png` at the clicked position
             units_region = (units_x1, units_y1, units_x2, units_y2)
             units_clicked = True
             print("Units region selected!")
+            # Update text prompt
             image_copy = original_image.copy()
             cv2.putText(image_copy, "Click to place the surf timer region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
             cv2.imshow("Thumbnail", image_copy)
         elif not surftimer_clicked:
+            # Calculate the top-left and bottom-right coordinates of the box
             surftimer_width_half = surftimer_template_width // 2
             surftimer_height_half = surftimer_template_height // 2
             surftimer_x1 = x - surftimer_width_half
@@ -48,9 +41,11 @@ def on_mouse(event, x, y, flags, param):
             surftimer_x2 = x + surftimer_width_half
             surftimer_y2 = y + surftimer_height_half
 
+            # Place a box of size `surftimer_template.png` at the clicked position
             surftimer_region = (surftimer_x1, surftimer_y1, surftimer_x2, surftimer_y2)
             surftimer_clicked = True
             print("Surf timer region selected!")
+            # Update text prompt
             image_copy = original_image.copy()
             cv2.putText(image_copy, "Regions placed. Processing...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
@@ -61,18 +56,8 @@ def on_mouse(event, x, y, flags, param):
 def refine_bounding_box(image, region):
     x1, y1, x2, y2 = region
     
-    # Ensure coordinates are within image bounds
-    x1 = max(x1, 0)
-    y1 = max(y1, 0)
-    x2 = min(x2, image.shape[1])
-    y2 = min(y2, image.shape[0])
-
     # Extract the region of interest (ROI) from the image
     roi = image[y1:y2, x1:x2]
-
-    if roi.size == 0:
-        print("Error: ROI is empty")
-        return region  # Return the original region if ROI is empty
 
     # Convert the ROI to grayscale
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -101,6 +86,64 @@ def refine_bounding_box(image, region):
     
     refined_region = (refined_x1, refined_y1, refined_x2, refined_y2)
     return refined_region
+
+def extract_text_from_box(image, region):
+    x1, y1, x2, y2 = region
+    
+    # Ensure coordinates are within image bounds
+    x1 = max(x1, 0)
+    y1 = max(y1, 0)
+    x2 = min(x2, image.shape[1])
+    y2 = min(y2, image.shape[0])
+
+    # Extract the region of interest (ROI) from the image
+    roi = image[y1:y2, x1:x2]
+
+    if roi.size == 0:
+        print("Error: ROI is empty")
+        return ""
+    
+    # Convert the ROI to grayscale
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    
+    # Use Tesseract to extract text within the ROI
+    text = pytesseract.image_to_string(gray)
+    return text
+
+def crop_video(video_path, start_time, end_time, output_path):
+    cap = cv2.VideoCapture(video_path)
+    
+    # Check if video loaded successfully
+    if not cap.isOpened():
+        print("Error opening video file!")
+        return
+    
+    # Get the frame rate
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
+    # Convert start and end times to frame numbers
+    start_frame = int(start_time * fps)
+    end_frame = int(end_time * fps)
+    
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
+    
+    # Set the video position to the start frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+        if current_frame > end_frame:
+            break
+        out.write(frame)
+    
+    cap.release()
+    out.release()
+    print(f"Video cropped and saved to {output_path}")
 
 def select_video():
     global video_path, thumbnail_label, units_region, surftimer_region, units_clicked, surftimer_clicked, original_image, image_copy
@@ -195,6 +238,28 @@ def select_video():
         thumbnail_label.config(image=image_tk)
         thumbnail_label.image = image_tk
 
+        # Extract timer start and end times
+        start_time = None
+        end_time = None
+
+        # Extract the text from the surf timer region
+        surf_timer_text = extract_text_from_box(original_image, surftimer_region)
+        match = re.search(r"Time: (\d{2}):(\d{2}):(\d{2})", surf_timer_text)
+        if match:
+            start_hours, start_minutes, start_seconds = map(int, match.groups())
+            start_time = start_hours * 3600 + start_minutes * 60 + start_seconds
+
+            # Calculate the end time (assuming video length is known)
+            end_time = start_time + (total_frames / fps)
+        else:
+            print("Error: Could not extract timer times.")
+            return
+
+        # Crop the video
+        output_path = filedialog.asksaveasfilename(defaultextension=".mp4", filetypes=[("MP4 files", "*.mp4")])
+        if output_path:
+            crop_video(video_path, start_time, end_time, output_path)
+
 # Create the main window
 root = tk.Tk()
 root.title("Video Selector")
@@ -213,10 +278,10 @@ thumbnail_label = tk.Label(root)
 thumbnail_label.pack(fill=tk.BOTH, expand=True)
 
 # Center the frame in the window
-root.update()
 frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
 # Move the button to the bottom of the window
 frame.pack(side=tk.BOTTOM)
 
+# Start the Tkinter event loop
 root.mainloop()
