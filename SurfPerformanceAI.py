@@ -15,8 +15,16 @@ def on_mouse(event, x, y, flags, param):
 
     if event == cv2.EVENT_LBUTTONDOWN:
         if not units_clicked:
+            # Calculate the top-left and bottom-right coordinates of the box
+            units_width_half = units_template_width // 2
+            units_height_half = units_template_height // 2
+            units_x1 = x - units_width_half
+            units_y1 = y - units_height_half
+            units_x2 = x + units_width_half
+            units_y2 = y + units_height_half
+
             # Place a box of size `units_template.png` at the clicked position
-            units_region = (x, y, x + units_template_width, y + units_template_height)
+            units_region = (units_x1, units_y1, units_x2, units_y2)
             units_clicked = True
             print("Units region selected!")
             # Update text prompt
@@ -25,8 +33,16 @@ def on_mouse(event, x, y, flags, param):
             cv2.rectangle(image_copy, (units_region[0], units_region[1]), (units_region[2], units_region[3]), (0, 255, 0), 2)
             cv2.imshow("Thumbnail", image_copy)
         elif not player_data_clicked:
+            # Calculate the top-left and bottom-right coordinates of the box
+            player_data_width_half = player_data_template_width // 2
+            player_data_height_half = player_data_template_height // 2
+            player_data_x1 = x - player_data_width_half
+            player_data_y1 = y - player_data_height_half
+            player_data_x2 = x + player_data_width_half
+            player_data_y2 = y + player_data_height_half
+
             # Place a box of size `player_data_template.png` at the clicked position
-            player_data_region = (x, y, x + player_data_template_width, y + player_data_template_height)
+            player_data_region = (player_data_x1, player_data_y1, player_data_x2, player_data_y2)
             player_data_clicked = True
             print("Player data region selected!")
             # Update text prompt
