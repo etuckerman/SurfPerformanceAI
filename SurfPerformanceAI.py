@@ -247,17 +247,16 @@ def scale_regions(original_frame_size, resized_frame_size, regions):
 
 def process_video_frames(video_path, units_region, surftimer_region, csv_file_path, text_label):
     cap = cv2.VideoCapture(video_path)
-    
+
     if not cap.isOpened():
         print("Error opening video file!")
         return
-    
-    # Get original frame size
-    original_frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    
+
     fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_number = 0
     data = []
+    start_processing = False
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -275,9 +274,25 @@ def process_video_frames(video_path, units_region, surftimer_region, csv_file_pa
         units_text = extract_text_from_box(frame_resized, scaled_units_region)
         surf_timer_text = extract_text_from_box(frame_resized, scaled_surftimer_region)
         
-        # Append the data to the list
-        data.append([frame_number, units_text, surf_timer_text])
-        
+       # Check if surf timer text contains "Time" to start processing
+        if "Time" in surf_timer_text and not start_processing:
+            start_processing = True
+            print("Processing started!")
+
+        if start_processing:
+            # Append the data to the list
+            data.append([frame_number, units_text, surf_timer_text])
+
+            # Draw rectangles on the resized frame
+            frame_with_regions = frame_resized.copy()
+
+            # Display the frame
+            cv2.imshow("Video Frame", frame_with_regions)
+
+            # Update the Tkinter label with extracted text
+            text_label.config(text=f"Frame {frame_number}: Units Text: {units_text}\nSurf Timer Text: {surf_timer_text}")
+            root.update_idletasks()
+
         # Draw rectangles on the resized frame
         frame_with_regions = frame_resized.copy()
         cv2.rectangle(frame_with_regions, (scaled_units_region[0], scaled_units_region[1]), (scaled_units_region[2], scaled_units_region[3]), (0, 255, 0), 2)
@@ -299,9 +314,14 @@ def process_video_frames(video_path, units_region, surftimer_region, csv_file_pa
     cap.release()
     cv2.destroyAllWindows()
     
-    # Write data to CSV
-    write_to_csv(data, csv_file_path)
-    print(f"Data saved to {csv_file_path}")
+    # Store data in a numpy array
+    data_array = np.array(data)
+
+
+    if frame_number == total_frames:
+        # Write data to CSV
+        np.savetxt(csv_file_path, data_array, delimiter=',', fmt='%s')
+        print(f"Data saved to {csv_file_path}")
 
 def play_video_in_intervals(video_path):
     cap = cv2.VideoCapture(video_path)
@@ -324,7 +344,7 @@ def play_video_in_intervals(video_path):
             break
         
         # Display the frame
-        cv2.imshow('Video Playback', frame)
+        #cv2.imshow('Video Playback', frame)
         
         # Wait for a short period to give the appearance of normal playback speed
         # Calculate delay to maintain video playback speed
@@ -407,7 +427,7 @@ def select_video():
 
         # Display thumbnail with mouse callback
         cv2.putText(image_copy, "Click to place the units region", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.imshow("Thumbnail", image_copy)
+        #cv2.imshow("Thumbnail", image_copy)
         cv2.setMouseCallback("Thumbnail", on_mouse)
 
         while not units_clicked:
